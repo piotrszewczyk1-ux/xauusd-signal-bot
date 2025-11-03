@@ -1,62 +1,64 @@
-import os, json
 from flask import Flask, request, jsonify
+import os
 import requests
+
+# === KONFIGURACJA ===
+BOT_TOKEN = "8428959424:AAHtN6ulpgFbI-4nxuU1f5oz67hNVkdkxn8"
+CHAT_ID = "7324665959"
+WEBHOOK_SECRET = "GOLD2025"
 
 app = Flask(__name__)
 
-TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "1") in ["1", "true", "True"]
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-CHAT_ID = os.getenv("CHAT_ID", "")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "GOLD2025")
+# === GŁÓWNY ROUTE (testowy) ===
+@app.route('/', methods=['GET'])
+def home():
+    return "✅ XAUUSD Signal Bot działa 24/7", 200
 
-def send_telegram(text: str):
-    if not TELEGRAM_ENABLED or not BOT_TOKEN or not CHAT_ID:
-        print("Telegram disabled or credentials missing")
-        return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        print("Telegram status:", r.status_code, r.text)
-    except Exception as e:
-        print("Telegram error:", e)
 
-@app.route("/health", methods=["GET"])
-def health():
-    return "OK", 200
-
-@app.route("/tv", methods=["POST"])
-def tv():
+# === WEBHOOK ODBIERAJĄCY ALERTY Z TRADINGVIEW ===
+@app.route('/tv', methods=['POST'])
+def tradingview_webhook():
     try:
         data = request.get_json(force=True)
+        print("📩 Odebrano dane:", data)
+
+        # 🔒 Weryfikacja sekretu
+        if data.get("secret") != WEBHOOK_SECRET:
+            return jsonify({"error": "Błędny sekret"}), 403
+
+        # Pobieramy dane z JSON
+        symbol = data.get("symbol", "N/A")
+        side = data.get("side", "N/A")
+        price = data.get("price", "N/A")
+        tp1 = data.get("tp1", "N/A")
+        tp2 = data.get("tp2", "N/A")
+        sl = data.get("sl", "N/A")
+        rsi = data.get("rsi", "N/A")
+        adx = data.get("adx", "N/A")
+
+        # Tworzymy wiadomość do Telegrama
+        message = f"""
+📊 *{symbol}* – *{side}*
+💰 Cena: `{price}`
+🎯 TP1: `{tp1}`
+🎯 TP2: `{tp2}`
+🛑 SL: `{sl}`
+📈 RSI: `{rsi}`
+📊 ADX: `{adx}`
+🕒 Wysłano automatycznie z TradingView
+"""
+        # Wysyłamy do Telegrama
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        requests.post(url, json=payload)
+
+        return jsonify({"status": "ok"}), 200
+
     except Exception as e:
-        print("❌ JSON parse error:", e)
-        return jsonify({"ok": False, "error": "invalid_json"}), 400
+        print("❌ Błąd:", e)
+        return jsonify({"error": str(e)}), 500
 
-    print("✅ Alert:", data)
 
-    # weryfikacja sekretu
-    secret = data.get("secret", "")
-    if WEBHOOK_SECRET and secret != WEBHOOK_SECRET:
-        print("❌ Bad secret")
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
-
-    # sformatuj wiadomość
-    symbol = data.get("symbol", "UNK")
-    side = data.get("side", "UNK")
-    price = data.get("price", "?")
-    tp1 = data.get("tp1", "?")
-    tp2 = data.get("tp2", "?")
-    sl = data.get("sl", "?")
-
-    msg = f"""<b>📊 XAUUSD SIGNAL</b>
-<b>{side}</b> @ {price}
-🎯 TP1: {tp1}
-🎯 TP2: {tp2}
-⛔ SL: {sl}"""
-
-    send_telegram(msg)
-    return jsonify({"ok": True}), 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
